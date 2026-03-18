@@ -1,8 +1,13 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../constants/game_colors.dart';
 import '../models/game_state.dart';
+import '../models/magnet_type.dart';
 import '../providers/game_provider.dart';
+import '../services/sound_service.dart';
 import 'magnet_painter.dart';
 
 class GameBoard extends ConsumerStatefulWidget {
@@ -16,10 +21,15 @@ class _GameBoardState extends ConsumerState<GameBoard>
     with TickerProviderStateMixin {
   late AnimationController _controller;
   late AnimationController _flashController;
+  late AnimationController _pulseController;
+  late AnimationController _invalidTapCtrl;
+  late AnimationController _particleCtrl;
+
   Map<String, Offset> _animOffsets = {};
   Map<String, Offset> _startOffsets = {};
   Offset? _targetOffset;
   Size _boardSize = Size.zero;
+  List<Particle> _particles = [];
 
   @override
   void initState() {
@@ -35,6 +45,24 @@ class _GameBoardState extends ConsumerState<GameBoard>
       duration: const Duration(milliseconds: 400),
       vsync: this,
     );
+
+    _pulseController = AnimationController(
+      duration: const Duration(seconds: 2),
+      vsync: this,
+    )..repeat();
+
+    _invalidTapCtrl = AnimationController(
+      duration: const Duration(milliseconds: 350),
+      vsync: this,
+    );
+
+    _particleCtrl = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    // SharedPreferences 에서 soundEnabled 로드
+    ref.read(soundProvider).init();
   }
 
   void _onTick() {
@@ -49,9 +77,46 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
   void _onStatus(AnimationStatus status) {
     if (status == AnimationStatus.completed && mounted) {
+      // 흡수 완료 — 파티클 버스트 + SFX (onAnimationComplete 호출 전에 읽어야 함)
+      final state = ref.read(gameProvider);
+      final selectedId = state.selectedMagnetId;
+      final selected =
+          state.magnets.where((m) => m.id == selectedId).firstOrNull;
+
+      _spawnParticles(selected?.ownerId ?? 0);
+
+      if (selected?.type == MagnetType.chain) {
+        ref.read(soundProvider).playChain();
+      } else {
+        ref.read(soundProvider).playAbsorb();
+      }
+
       setState(() => _animOffsets = {});
       ref.read(gameProvider.notifier).onAnimationComplete();
     }
+  }
+
+  void _spawnParticles(int ownerId) {
+    final target = _targetOffset;
+    if (target == null) return;
+
+    final rng = Random();
+    final color = GameColors.ownerColor(ownerId);
+    final count = (_startOffsets.length * 8).clamp(8, 48);
+
+    final newParticles = <Particle>[];
+    for (int i = 0; i < count; i++) {
+      final angle = rng.nextDouble() * 2 * pi;
+      final speed = 20.0 + rng.nextDouble() * 30.0;
+      newParticles.add(Particle(
+        origin: target,
+        velocity: Offset(cos(angle), sin(angle)) * speed,
+        color: color,
+      ));
+    }
+
+    setState(() => _particles = newParticles);
+    _particleCtrl.forward(from: 0);
   }
 
   @override
@@ -61,6 +126,9 @@ class _GameBoardState extends ConsumerState<GameBoard>
       ..removeStatusListener(_onStatus)
       ..dispose();
     _flashController.dispose();
+    _pulseController.dispose();
+    _invalidTapCtrl.dispose();
+    _particleCtrl.dispose();
     super.dispose();
   }
 
@@ -89,8 +157,51 @@ class _GameBoardState extends ConsumerState<GameBoard>
   @override
   Widget build(BuildContext context) {
     ref.listen<GameState>(gameProvider, (prev, next) {
+      // 이동불가 경고
       if (next.noMoveWarning && prev?.noMoveWarning != true) {
         _flashController.forward(from: 0);
+        ref.read(soundProvider).playNoMove();
+      }
+
+      // 잘못된 탭
+      if (next.invalidTap && prev?.invalidTap != true) {
+        _invalidTapCtrl.forward(from: 0).then((_) {
+          if (mounted) ref.read(gameProvider.notifier).clearInvalidTap();
+        });
+        ref.read(soundProvider).playInvalidTap();
+      }
+
+      // 게임 오버
+      if (next.phase == GamePhase.gameOver &&
+          prev?.phase != GamePhase.gameOver) {
+        _pulseController.stop();
+        ref.read(soundProvider).playWin();
+      }
+
+      // 게임 리셋 (gameOver → p1Turn)
+      if (next.phase == GamePhase.p1Turn &&
+          prev?.phase == GamePhase.gameOver) {
+        _pulseController.repeat();
+        setState(() => _particles = []);
+        ref.read(soundProvider).playGameStart();
+      }
+
+      // 반발 SFX: turn→turn (또는 turn→gameOver) 전환 시 noMoveWarning 없이
+      // animating을 거치지 않는 직접 전환 = repel 액션
+      if (prev != null &&
+          (prev.phase == GamePhase.p1Turn ||
+              prev.phase == GamePhase.p2Turn) &&
+          (next.phase == GamePhase.p1Turn ||
+              next.phase == GamePhase.p2Turn ||
+              next.phase == GamePhase.gameOver) &&
+          !next.noMoveWarning) {
+        ref.read(soundProvider).playRepel();
+      }
+
+      if (prev?.phase == GamePhase.gameOver &&
+          next.phase != GamePhase.gameOver) {
+        // resetGame() 후 gameOver → non-gameOver 시 pulse 재시작
+        _pulseController.repeat();
       }
 
       if (prev?.phase == next.phase) return;
@@ -122,16 +233,24 @@ class _GameBoardState extends ConsumerState<GameBoard>
         },
         child: Stack(
           children: [
-            Container(
-              color: const Color(0xFF1A1A2E),
-              child: CustomPaint(
-                painter: MagnetPainter(
-                  gameState: state,
-                  animationOffsets: _animOffsets,
+            AnimatedBuilder(
+              animation:
+                  Listenable.merge([_pulseController, _particleCtrl]),
+              builder: (context, _) => Container(
+                color: const Color(0xFF1A1A2E),
+                child: CustomPaint(
+                  painter: MagnetPainter(
+                    gameState: state,
+                    animationOffsets: _animOffsets,
+                    pulseValue: _pulseController.value,
+                    particles: _particles,
+                    particleProgress: _particleCtrl.value,
+                  ),
+                  size: _boardSize,
                 ),
-                size: _boardSize,
               ),
             ),
+            // noMoveWarning — 빨간 플래시
             AnimatedBuilder(
               animation: _flashController,
               builder: (context, _) {
@@ -144,6 +263,22 @@ class _GameBoardState extends ConsumerState<GameBoard>
                 return IgnorePointer(
                   child: Container(
                     color: Colors.red.withValues(alpha: opacity),
+                  ),
+                );
+              },
+            ),
+            // invalidTap — 오렌지 플래시
+            AnimatedBuilder(
+              animation: _invalidTapCtrl,
+              builder: (context, child) {
+                final opacity = (1.0 - _invalidTapCtrl.value) *
+                    _invalidTapCtrl.value *
+                    4.0 *
+                    0.25;
+                if (opacity <= 0) return const SizedBox.shrink();
+                return IgnorePointer(
+                  child: Container(
+                    color: Colors.orange.withValues(alpha: opacity),
                   ),
                 );
               },

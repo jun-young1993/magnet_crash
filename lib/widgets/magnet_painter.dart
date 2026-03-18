@@ -1,33 +1,42 @@
 import 'package:flutter/material.dart';
 
+import '../constants/game_colors.dart';
 import '../engine/physics.dart' as physics;
 import '../models/game_state.dart';
-import '../models/magnet.dart';
 import '../models/magnet_type.dart';
+
+/// 흡수 완료 시 터지는 파티클 하나를 나타냄.
+/// [origin]에서 [velocity] 방향으로 날아가며 [position(t)]으로 위치 계산.
+class Particle {
+  final Offset origin;
+  final Offset velocity; // pixels per animation unit (t=0~1)
+  final Color color;
+
+  const Particle({
+    required this.origin,
+    required this.velocity,
+    required this.color,
+  });
+
+  Offset position(double t) => origin + velocity * t;
+}
 
 class MagnetPainter extends CustomPainter {
   final GameState gameState;
   final Map<String, Offset> animationOffsets;
+  final double pulseValue;
+  final List<Particle> particles;
+  final double particleProgress; // 0~1
 
   const MagnetPainter({
     required this.gameState,
     this.animationOffsets = const {},
+    this.pulseValue = 0.0,
+    this.particles = const [],
+    this.particleProgress = 0.0,
   });
 
   static const double _radius = 18.0;
-
-  Color _ownerColor(Magnet m) => switch (m.ownerId) {
-        0 => const Color(0xFF4FC3F7),
-        1 => const Color(0xFFEF9A9A),
-        _ => const Color(0xFF9E9E9E),
-      };
-
-  Color _typeAccent(MagnetType type) => switch (type) {
-        MagnetType.weak => const Color(0xFFE0E0E0),
-        MagnetType.strong => const Color(0xFFFFD54F),
-        MagnetType.repel => const Color(0xFF69F0AE),
-        MagnetType.chain => const Color(0xFFCE93D8),
-      };
 
   String _typeLabel(MagnetType type) => switch (type) {
         MagnetType.weak => 'W',
@@ -40,15 +49,38 @@ class MagnetPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     _drawGrid(canvas, size);
 
+    final currentOwnerId = switch (gameState.phase) {
+      GamePhase.p1Turn => 0,
+      GamePhase.p2Turn => 1,
+      _ => -1,
+    };
+
     for (final magnet in gameState.magnets) {
       final isAbsorbing = gameState.absorbingIds?.contains(magnet.id) ?? false;
       final isSelected = magnet.id == gameState.selectedMagnetId;
+      final isCurrentPlayerMagnet =
+          magnet.ownerId == currentOwnerId && currentOwnerId >= 0;
 
       final Offset center;
       if (animationOffsets.containsKey(magnet.id)) {
         center = animationOffsets[magnet.id]!;
       } else {
         center = Offset(magnet.x * size.width, magnet.y * size.height);
+      }
+
+      // 현재 플레이어 소유 자석 pulse ring
+      if (isCurrentPlayerMagnet && gameState.phase != GamePhase.animating) {
+        final pulseRadius = _radius + 8 + pulseValue * 6;
+        final pulseAlpha = (0.6 - pulseValue * 0.4).clamp(0.2, 0.6);
+        canvas.drawCircle(
+          center,
+          pulseRadius,
+          Paint()
+            ..color =
+                GameColors.ownerColor(magnet.ownerId).withValues(alpha: pulseAlpha)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.0,
+        );
       }
 
       // 선택 자석의 흡수 범위 미리보기
@@ -59,14 +91,16 @@ class MagnetPainter extends CustomPainter {
             center,
             r,
             Paint()
-              ..color = _ownerColor(magnet).withValues(alpha: 0.12)
+              ..color =
+                  GameColors.ownerColor(magnet.ownerId).withValues(alpha: 0.12)
               ..style = PaintingStyle.fill,
           );
           canvas.drawCircle(
             center,
             r,
             Paint()
-              ..color = _ownerColor(magnet).withValues(alpha: 0.4)
+              ..color =
+                  GameColors.ownerColor(magnet.ownerId).withValues(alpha: 0.4)
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1.0,
           );
@@ -75,7 +109,8 @@ class MagnetPainter extends CustomPainter {
 
       // 자석 본체
       final double alpha = isAbsorbing ? 0.5 : 1.0;
-      final ownerColor = _ownerColor(magnet).withValues(alpha: alpha);
+      final ownerColor =
+          GameColors.ownerColor(magnet.ownerId).withValues(alpha: alpha);
 
       canvas.drawCircle(center, _radius, Paint()..color = ownerColor);
 
@@ -84,7 +119,7 @@ class MagnetPainter extends CustomPainter {
         center,
         _radius * 0.45,
         Paint()
-          ..color = _typeAccent(magnet.type).withValues(alpha: alpha)
+          ..color = GameColors.typeAccent(magnet.type).withValues(alpha: alpha)
           ..style = PaintingStyle.fill,
       );
 
@@ -124,6 +159,18 @@ class MagnetPainter extends CustomPainter {
       )..layout();
       tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
     }
+
+    // 파티클 렌더링 (모든 자석 위에)
+    if (particles.isNotEmpty && particleProgress > 0) {
+      final particlePaint = Paint()..style = PaintingStyle.fill;
+      for (final p in particles) {
+        final pos = p.position(particleProgress);
+        final alpha = (1.0 - particleProgress).clamp(0.0, 1.0);
+        final radius = 4.0 * (1.0 - particleProgress * 0.5);
+        particlePaint.color = p.color.withValues(alpha: alpha);
+        canvas.drawCircle(pos, radius, particlePaint);
+      }
+    }
   }
 
   void _drawGrid(Canvas canvas, Size size) {
@@ -141,5 +188,9 @@ class MagnetPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(MagnetPainter old) =>
-      old.gameState != gameState || old.animationOffsets != animationOffsets;
+      old.gameState != gameState ||
+      old.animationOffsets != animationOffsets ||
+      old.pulseValue != pulseValue ||
+      old.particles != particles ||
+      old.particleProgress != particleProgress;
 }
