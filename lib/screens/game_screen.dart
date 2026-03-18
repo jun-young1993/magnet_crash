@@ -1,30 +1,69 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../constants/game_colors.dart';
 import '../models/game_state.dart';
 import '../providers/game_provider.dart';
+import '../services/sound_service.dart';
 import '../widgets/game_board.dart';
 import '../widgets/game_result_overlay.dart';
+import '../widgets/rules_overlay.dart';
 
-class GameScreen extends ConsumerWidget {
+class GameScreen extends ConsumerStatefulWidget {
   const GameScreen({super.key});
 
+  @override
+  ConsumerState<GameScreen> createState() => _GameScreenState();
+}
+
+class _GameScreenState extends ConsumerState<GameScreen> {
+  bool _rulesShownThisSession = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // soundEnabled를 SharedPreferences 에서 로드
+    ref.read(soundProvider).init();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowRules());
+  }
+
+  void _maybeShowRules() {
+    if (_rulesShownThisSession) return;
+    ref.read(firstLaunchProvider.future).then((isFirst) {
+      if (isFirst && mounted) {
+        _rulesShownThisSession = true;
+        _showRules(markSeen: true);
+      }
+    });
+  }
+
+  void _showRules({bool markSeen = false}) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const RulesOverlay(),
+    ).then((_) {
+      if (markSeen) markRulesSeen();
+    });
+  }
+
   String _phaseLabel(GamePhase phase) => switch (phase) {
-        GamePhase.p1Turn => "Player 1's Turn",
-        GamePhase.p2Turn => "Player 2's Turn",
+        GamePhase.p1Turn => 'P1 YOUR TURN',
+        GamePhase.p2Turn => 'P2 YOUR TURN',
         GamePhase.animating => 'Animating…',
         GamePhase.gameOver => 'Game Over',
         GamePhase.init => 'Loading…',
       };
 
   Color _phaseColor(GamePhase phase) => switch (phase) {
-        GamePhase.p1Turn => const Color(0xFF4FC3F7),
-        GamePhase.p2Turn => const Color(0xFFEF9A9A),
+        GamePhase.p1Turn => GameColors.p1Color,
+        GamePhase.p2Turn => GameColors.p2Color,
         _ => Colors.white54,
       };
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final state = ref.watch(gameProvider);
 
     return Scaffold(
@@ -49,26 +88,29 @@ class GameScreen extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _ScoreChip(
-                    label: 'P1',
-                    score: state.scores[0],
-                    color: const Color(0xFF4FC3F7)),
-                Text(
-                  _phaseLabel(state.phase),
-                  style: TextStyle(
-                    color: _phaseColor(state.phase),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  label: 'P1',
+                  score: state.scores[0],
+                  color: GameColors.p1Color,
+                ),
+                _TurnPill(
+                  label: _phaseLabel(state.phase),
+                  color: _phaseColor(state.phase),
                 ),
                 _ScoreChip(
-                    label: 'P2',
-                    score: state.scores[1],
-                    color: const Color(0xFFEF9A9A)),
+                  label: 'P2',
+                  score: state.scores[1],
+                  color: GameColors.p2Color,
+                ),
               ],
             ),
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white70),
+            tooltip: 'Rules',
+            onPressed: () => _showRules(),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white70),
             tooltip: 'New Game',
@@ -82,7 +124,35 @@ class GameScreen extends ConsumerWidget {
           if (state.phase == GamePhase.gameOver) const GameResultOverlay(),
         ],
       ),
-      bottomNavigationBar: _LegendBar(),
+      bottomNavigationBar: const _LegendBar(),
+    );
+  }
+}
+
+class _TurnPill extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _TurnPill({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        border: Border.all(color: color, width: 1.5),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.5,
+        ),
+      ),
     );
   }
 }
@@ -113,6 +183,8 @@ class _ScoreChip extends StatelessWidget {
 }
 
 class _LegendBar extends StatelessWidget {
+  const _LegendBar();
+
   @override
   Widget build(BuildContext context) {
     const items = [
