@@ -3,12 +3,29 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../engine/game_engine.dart';
 import '../engine/physics.dart';
 import '../models/game_state.dart';
 import '../models/magnet.dart';
 import '../models/magnet_type.dart';
+
+final firstLaunchProvider = FutureProvider<bool>((ref) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return !(prefs.getBool('rules_seen') ?? false);
+  } catch (_) {
+    return true;
+  }
+});
+
+Future<void> markRulesSeen() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('rules_seen', true);
+  } catch (_) {}
+}
 
 final gameProvider = StateNotifierProvider<GameNotifier, GameState>((ref) {
   return GameNotifier()..initGame();
@@ -99,7 +116,11 @@ class GameNotifier extends StateNotifier<GameState> {
     final currentOwnerId = state.phase == GamePhase.p1Turn ? 0 : 1;
     final nearest = findNearestMagnet(x, y, state.magnets);
     if (nearest == null) return;
-    if (nearest.ownerId != currentOwnerId) return;
+    if (nearest.ownerId != currentOwnerId) {
+      HapticFeedback.selectionClick();
+      state = state.copyWith(invalidTap: true);
+      return;
+    }
 
     if (nearest.type == MagnetType.repel) {
       _handleRepel(nearest);
@@ -235,6 +256,10 @@ class GameNotifier extends StateNotifier<GameState> {
       turnCount: state.turnCount + 1,
       noMoveWarning: false,
     );
+  }
+
+  void clearInvalidTap() {
+    if (state.invalidTap) state = state.copyWith(invalidTap: false);
   }
 
   void resetGame() => initGame();

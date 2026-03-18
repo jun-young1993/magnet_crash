@@ -10,6 +10,7 @@ class GameState {
   final String? selectedMagnetId;
   final List<String>? absorbingIds;
   final bool noMoveWarning;
+  final bool invalidTap;
 
   const GameState({
     required this.magnets,
@@ -19,6 +20,7 @@ class GameState {
     this.selectedMagnetId,
     this.absorbingIds,
     this.noMoveWarning = false,
+    this.invalidTap = false,
   });
 
   static const _unset = Object();
@@ -31,6 +33,7 @@ class GameState {
     Object? selectedMagnetId = _unset,
     Object? absorbingIds = _unset,
     bool? noMoveWarning,
+    bool? invalidTap,
   }) {
     return GameState(
       magnets: magnets ?? this.magnets,
@@ -44,6 +47,7 @@ class GameState {
           ? this.absorbingIds
           : absorbingIds as List<String>?,
       noMoveWarning: noMoveWarning ?? this.noMoveWarning,
+      invalidTap: invalidTap ?? this.invalidTap,
     );
   }
 }
