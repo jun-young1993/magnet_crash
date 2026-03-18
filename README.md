@@ -1,3 +1,21 @@
+## SFX 교체 가이드
+
+`assets/sounds/` 폴더의 `.wav` 파일을 동일 이름으로 교체하면 SFX가 업그레이드됩니다.
+
+| 파일 | 이벤트 | 권장 길이 |
+|------|--------|----------|
+| `absorb.wav` | 일반 흡수 완료 | 0.3s |
+| `chain.wav` | 체인 흡수 완료 | 0.5s |
+| `repel.wav` | 반발 액션 | 0.2s |
+| `win.wav` | 게임 오버 (승리) | 1.5s |
+| `invalid_tap.wav` | 잘못된 탭 | 0.2s |
+| `no_move.wav` | 이동불가 경고 | 0.2s |
+| `game_start.wav` | 게임 시작/리셋 | 0.3s |
+
+**권장 포맷:** 44100Hz, 16-bit, Mono WAV
+
+---
+
 🎮 게임 핵심 컨셉 (정리)
 
 가칭: “Magnet Clash”
