@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter pub:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(npx playwright:*)",
+      "Bash(~/.claude/skills/gstack/bin/gstack --version)",
+      "Bash(python3:*)",
+      "Bash(flutter test:*)"
+    ]
+  }
+}

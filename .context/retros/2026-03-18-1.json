@@ -1,0 +1,51 @@
+{
+  "date": "2026-03-18",
+  "window": "7d",
+  "metrics": {
+    "commits": 5,
+    "non_merge_commits": 4,
+    "contributors": 2,
+    "prs_merged": 1,
+    "insertions": 6157,
+    "deletions": 24,
+    "net_loc": 6133,
+    "test_loc": 133,
+    "test_ratio": 0.022,
+    "active_days": 1,
+    "sessions": 2,
+    "deep_sessions": 0,
+    "avg_session_minutes": 6,
+    "loc_per_session_hour": 0,
+    "feat_pct": 0.25,
+    "fix_pct": 0.00,
+    "chore_pct": 0.50,
+    "peak_hour": 18,
+    "ai_assisted_commits": 1
+  },
+  "authors": {
+    "junyoung": {
+      "commits": 3,
+      "insertions": 6128,
+      "deletions": 24,
+      "test_ratio": 0.022,
+      "top_area": "lib/"
+    },
+    "Kim Jun Young": {
+      "commits": 2,
+      "insertions": 29,
+      "deletions": 0,
+      "test_ratio": 0.0,
+      "top_area": ".gitignore"
+    }
+  },
+  "version_range": ["1.0.0+1", "1.0.1+2"],
+  "streak_days": 1,
+  "tweetable": "Mar 11-17: 5 commits, 6.1k LOC, 2% tests, 1 PR merged — Magnet Clash MVP shipped | Streak: 1d",
+  "backlog": {
+    "total_open": 2,
+    "p0_p1": 0,
+    "p2": 2,
+    "completed_this_period": 0,
+    "added_this_period": 2
+  }
+}
