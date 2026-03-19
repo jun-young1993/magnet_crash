@@ -2,6 +2,30 @@
 
 All notable changes to Magnet Clash will be documented in this file.
 
+## [1.0.3+4] - 2026-03-19
+
+### Added
+- `RandomEvent` enum (`polarReversal`, `typeShift`, `bonusSummon`, `none`) with Korean display labels via `RandomEventDisplay` extension
+- `activeEvent`, `stalemateTurns`, `magnetStormTrigger` fields on `GameState`
+- Random event system in `GameNotifier`: fires every 6th successful action (`_eventInterval`), picks one of three events
+  - `polarReversal`: swaps `weak` ↔ `repel` for all magnets
+  - `typeShift`: randomizes type of all neutral magnets
+  - `bonusSummon`: spawns 3 new neutral magnets in the 0.2–0.8 center area
+- Stalemate detection: 6 consecutive no-move turns trigger a magnetic storm (`_stalemateThreshold`)
+  - Magnetic storm moves all neutral magnets 60% toward center (0.5, 0.5)
+  - If no neutrals remain, game ends immediately via `GamePhase.gameOver`
+- `SoundService.playMagneticStorm()` — plays `sounds/magnetic_storm.wav` (graceful no-op if file absent)
+- Event flash overlays on `GameBoard`: yellow flash for magnetic storm, color-coded flash + name banner for random events
+- `HapticFeedback.heavyImpact()` on storm, `mediumImpact()` on random event
+- TODO #6 (magnetic storm SFX asset), TODO #7 (gameOver reason display), TODO #8 (random event unit tests) added to TODOS.md
+
+### Changed
+- `_consumeTurnWithWarning` now tracks `stalemateTurns` and delegates to `_triggerMagneticStorm` at threshold
+- Repel SFX guard extended: suppressed when `magnetStormTrigger` is true (avoids double-fire)
+- `_advanceTurn` resets `stalemateTurns` to 0 on every successful action
+- `_applyBonusSummon` guarded with `isEmpty` check (returns unchanged list for empty input)
+- Dead `if (repelled.isEmpty) return` branch removed from repel path
+
 ## [1.0.2+3] - 2026-03-18
 
 ### Added
