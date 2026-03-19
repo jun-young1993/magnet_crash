@@ -1,4 +1,5 @@
 import 'magnet.dart';
+import 'random_event.dart';
 
 enum GamePhase { init, p1Turn, p2Turn, animating, gameOver }
 
@@ -11,6 +12,9 @@ class GameState {
   final List<String>? absorbingIds;
   final bool noMoveWarning;
   final bool invalidTap;
+  final int stalemateTurns;
+  final bool magnetStormTrigger;
+  final RandomEvent activeEvent;
 
   const GameState({
     required this.magnets,
@@ -21,6 +25,9 @@ class GameState {
     this.absorbingIds,
     this.noMoveWarning = false,
     this.invalidTap = false,
+    this.stalemateTurns = 0,
+    this.magnetStormTrigger = false,
+    this.activeEvent = RandomEvent.none,
   });
 
   static const _unset = Object();
@@ -34,6 +41,9 @@ class GameState {
     Object? absorbingIds = _unset,
     bool? noMoveWarning,
     bool? invalidTap,
+    int? stalemateTurns,
+    bool? magnetStormTrigger,
+    RandomEvent? activeEvent,
   }) {
     return GameState(
       magnets: magnets ?? this.magnets,
@@ -48,6 +58,9 @@ class GameState {
           : absorbingIds as List<String>?,
       noMoveWarning: noMoveWarning ?? this.noMoveWarning,
       invalidTap: invalidTap ?? this.invalidTap,
+      stalemateTurns: stalemateTurns ?? this.stalemateTurns,
+      magnetStormTrigger: magnetStormTrigger ?? this.magnetStormTrigger,
+      activeEvent: activeEvent ?? this.activeEvent,
     );
   }
 }

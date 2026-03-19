@@ -10,6 +10,7 @@ import '../engine/physics.dart';
 import '../models/game_state.dart';
 import '../models/magnet.dart';
 import '../models/magnet_type.dart';
+import '../models/random_event.dart';
 
 final firstLaunchProvider = FutureProvider<bool>((ref) async {
   try {
@@ -35,6 +36,9 @@ class GameNotifier extends StateNotifier<GameState> {
   static const _p1Count = 4;
   static const _p2Count = 4;
   static const _neutralCount = 12;
+  static const _stalemateThreshold = 6; // 연속 6턴 노무브 시 자기 폭풍 발동
+  static const _eventInterval = 6;    // 6번 성공 액션마다 이벤트
+  static const _bonusSummonCount = 3; // 소환 자석 수
 
   final _random = Random();
   final _engine = GameEngine();
@@ -161,29 +165,61 @@ class GameNotifier extends StateNotifier<GameState> {
       return repelled.firstWhere((r) => r.id == m.id, orElse: () => m);
     }).toList();
 
-    final isGameOver = _engine.checkWinCondition(updatedMagnets);
-    final nextPhase = isGameOver
-        ? GamePhase.gameOver
-        : _engine.nextPhase(
-            repeller.ownerId == 0 ? GamePhase.p1Turn : GamePhase.p2Turn);
-
-    state = GameState(
-      magnets: updatedMagnets,
-      phase: nextPhase,
-      scores: List<int>.from(state.scores),
-      turnCount: state.turnCount + 1,
-    );
+    _advanceTurn(updatedMagnets, 0, selected: repeller);
   }
 
   void _consumeTurnWithWarning(int ownerId) {
+    final newStalemateTurns = state.stalemateTurns + 1;
     final nextPhase = _engine.nextPhase(
         ownerId == 0 ? GamePhase.p1Turn : GamePhase.p2Turn);
+
+    if (newStalemateTurns >= _stalemateThreshold) {
+      _triggerMagneticStorm(nextPhase);
+      return;
+    }
+
     state = GameState(
       magnets: state.magnets,
       phase: nextPhase,
       scores: List<int>.from(state.scores),
       turnCount: state.turnCount + 1,
+      stalemateTurns: newStalemateTurns,
       noMoveWarning: true,
+    );
+  }
+
+  void _triggerMagneticStorm(GamePhase nextPhase) {
+    final neutrals = state.magnets.where((m) => m.ownerId == -1).toList();
+    debugPrint('[Turn ${state.turnCount + 1}] MagneticStorm triggered. '
+        'Neutrals: ${neutrals.length}, stalemateTurns: ${state.stalemateTurns}');
+
+    if (neutrals.isEmpty) {
+      // 처리 불가 케이스 → 점수로 게임 종료
+      state = GameState(
+        magnets: state.magnets,
+        phase: GamePhase.gameOver,
+        scores: List<int>.from(state.scores),
+        turnCount: state.turnCount + 1,
+        stalemateTurns: 0,
+      );
+      return;
+    }
+
+    // 중립 자석들을 중앙(0.5, 0.5) 방향으로 60% 이동
+    final newMagnets = state.magnets.map((m) {
+      if (m.ownerId != -1) return m;
+      final newX = (m.x + (0.5 - m.x) * 0.6).clamp(0.05, 0.95);
+      final newY = (m.y + (0.5 - m.y) * 0.6).clamp(0.05, 0.95);
+      return m.copyWith(x: newX, y: newY);
+    }).toList();
+
+    state = GameState(
+      magnets: newMagnets,
+      phase: nextPhase,
+      scores: List<int>.from(state.scores),
+      turnCount: state.turnCount + 1,
+      stalemateTurns: 0,
+      magnetStormTrigger: true,
     );
   }
 
@@ -249,13 +285,70 @@ class GameNotifier extends StateNotifier<GameState> {
         : _engine.nextPhase(
             ownerId == 0 ? GamePhase.p1Turn : GamePhase.p2Turn);
 
+    final newTurnCount = state.turnCount + 1;
+    List<Magnet> finalMagnets = newMagnets;
+    RandomEvent event = RandomEvent.none;
+
+    if (!isGameOver && newTurnCount % _eventInterval == 0) {
+      (finalMagnets, event) = _applyRandomEvent(newMagnets);
+    }
+
     state = GameState(
-      magnets: newMagnets,
+      magnets: finalMagnets,
       phase: nextPhase,
       scores: newScores,
-      turnCount: state.turnCount + 1,
+      turnCount: newTurnCount,
+      stalemateTurns: 0,
       noMoveWarning: false,
+      activeEvent: event,
     );
+  }
+
+  (List<Magnet>, RandomEvent) _applyRandomEvent(List<Magnet> magnets) {
+    const events = [
+      RandomEvent.polarReversal,
+      RandomEvent.typeShift,
+      RandomEvent.bonusSummon,
+    ];
+    final event = events[_random.nextInt(events.length)];
+    return switch (event) {
+      RandomEvent.polarReversal => (_applyPolarReversal(magnets), event),
+      RandomEvent.typeShift => (_applyTypeShift(magnets), event),
+      RandomEvent.bonusSummon => (_applyBonusSummon(magnets), event),
+      RandomEvent.none => throw AssertionError('none은 events 리스트에 없음 — 도달 불가'),
+    };
+  }
+
+  List<Magnet> _applyPolarReversal(List<Magnet> magnets) {
+    return magnets.map((m) => switch (m.type) {
+          MagnetType.repel => m.copyWith(type: MagnetType.weak),
+          MagnetType.weak => m.copyWith(type: MagnetType.repel),
+          _ => m,
+        }).toList();
+  }
+
+  List<Magnet> _applyTypeShift(List<Magnet> magnets) {
+    return magnets.map((m) {
+      if (m.ownerId != -1) return m; // 플레이어 자석 유지
+      return m.copyWith(type: _randomType());
+    }).toList();
+  }
+
+  List<Magnet> _applyBonusSummon(List<Magnet> magnets) {
+    if (magnets.isEmpty) return magnets;
+    final maxGroupId = magnets.map((m) => m.groupId).reduce(max);
+    final newMagnets = List<Magnet>.from(magnets);
+    for (int i = 0; i < _bonusSummonCount; i++) {
+      newMagnets.add(Magnet(
+        id: 'bonus_${state.turnCount}_$i',
+        x: _random.nextDouble() * 0.6 + 0.2, // 0.2~0.8 중앙 영역
+        y: _random.nextDouble() * 0.6 + 0.2,
+        type: _randomType(),
+        groupId: maxGroupId + 1 + i,
+        ownerId: -1,
+      ));
+    }
+    return newMagnets;
   }
 
   void clearInvalidTap() {
