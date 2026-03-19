@@ -1,11 +1,13 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../constants/game_colors.dart';
 import '../models/game_state.dart';
 import '../models/magnet_type.dart';
+import '../models/random_event.dart';
 import '../providers/game_provider.dart';
 import '../services/sound_service.dart';
 import 'magnet_painter.dart';
@@ -24,6 +26,9 @@ class _GameBoardState extends ConsumerState<GameBoard>
   late AnimationController _pulseController;
   late AnimationController _invalidTapCtrl;
   late AnimationController _particleCtrl;
+  late AnimationController _stormCtrl;
+  late AnimationController _eventCtrl;
+  RandomEvent _currentEvent = RandomEvent.none;
 
   Map<String, Offset> _animOffsets = {};
   Map<String, Offset> _startOffsets = {};
@@ -58,6 +63,16 @@ class _GameBoardState extends ConsumerState<GameBoard>
 
     _particleCtrl = AnimationController(
       duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _stormCtrl = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _eventCtrl = AnimationController(
+      duration: const Duration(milliseconds: 800),
       vsync: this,
     );
 
@@ -129,6 +144,8 @@ class _GameBoardState extends ConsumerState<GameBoard>
     _pulseController.dispose();
     _invalidTapCtrl.dispose();
     _particleCtrl.dispose();
+    _stormCtrl.dispose();
+    _eventCtrl.dispose();
     super.dispose();
   }
 
@@ -163,6 +180,13 @@ class _GameBoardState extends ConsumerState<GameBoard>
         ref.read(soundProvider).playNoMove();
       }
 
+      // 자기 폭풍 발동
+      if (next.magnetStormTrigger && prev?.magnetStormTrigger != true) {
+        _stormCtrl.forward(from: 0);
+        ref.read(soundProvider).playMagneticStorm();
+        HapticFeedback.heavyImpact();
+      }
+
       // 잘못된 탭
       if (next.invalidTap && prev?.invalidTap != true) {
         _invalidTapCtrl.forward(from: 0).then((_) {
@@ -186,7 +210,15 @@ class _GameBoardState extends ConsumerState<GameBoard>
         ref.read(soundProvider).playGameStart();
       }
 
-      // 반발 SFX: turn→turn (또는 turn→gameOver) 전환 시 noMoveWarning 없이
+      // 랜덤 이벤트 발동
+      if (next.activeEvent != RandomEvent.none &&
+          prev?.activeEvent != next.activeEvent) {
+        _currentEvent = next.activeEvent;
+        _eventCtrl.forward(from: 0);
+        HapticFeedback.mediumImpact();
+      }
+
+      // 반발 SFX: turn→turn (또는 turn→gameOver) 전환 시 noMoveWarning/magnetStormTrigger 없이
       // animating을 거치지 않는 직접 전환 = repel 액션
       if (prev != null &&
           (prev.phase == GamePhase.p1Turn ||
@@ -194,7 +226,8 @@ class _GameBoardState extends ConsumerState<GameBoard>
           (next.phase == GamePhase.p1Turn ||
               next.phase == GamePhase.p2Turn ||
               next.phase == GamePhase.gameOver) &&
-          !next.noMoveWarning) {
+          !next.noMoveWarning &&
+          !next.magnetStormTrigger) {
         ref.read(soundProvider).playRepel();
       }
 
@@ -279,6 +312,76 @@ class _GameBoardState extends ConsumerState<GameBoard>
                 return IgnorePointer(
                   child: Container(
                     color: Colors.orange.withValues(alpha: opacity),
+                  ),
+                );
+              },
+            ),
+            // magnetStorm — 노란 플래시
+            AnimatedBuilder(
+              animation: _stormCtrl,
+              builder: (context, _) {
+                final v = _stormCtrl.value;
+                final opacity = (1.0 - v) * v * 4.0 * 0.5;
+                if (opacity <= 0) return const SizedBox.shrink();
+                return IgnorePointer(
+                  child: Container(
+                    color: Colors.yellow.withValues(alpha: opacity),
+                  ),
+                );
+              },
+            ),
+            // 랜덤 이벤트 — 색상 플래시
+            AnimatedBuilder(
+              animation: _eventCtrl,
+              builder: (context, _) {
+                final v = _eventCtrl.value;
+                final opacity = (1.0 - v) * v * 4.0 * 0.45;
+                if (opacity <= 0) return const SizedBox.shrink();
+                final color = switch (_currentEvent) {
+                  RandomEvent.polarReversal => Colors.blue,
+                  RandomEvent.typeShift => Colors.purple,
+                  RandomEvent.bonusSummon => Colors.green,
+                  _ => Colors.transparent,
+                };
+                return IgnorePointer(
+                  child: Container(color: color.withValues(alpha: opacity)),
+                );
+              },
+            ),
+            // 랜덤 이벤트 — 이름 배너
+            AnimatedBuilder(
+              animation: _eventCtrl,
+              builder: (context, _) {
+                final v = _eventCtrl.value;
+                final opacity = v < 0.5 ? v * 2 : (1.0 - v) * 2;
+                if (opacity <= 0.01) return const SizedBox.shrink();
+                return Positioned(
+                  top: 60,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: IgnorePointer(
+                      child: Opacity(
+                        opacity: opacity.clamp(0.0, 1.0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.75),
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: Text(
+                            _currentEvent.label,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 );
               },

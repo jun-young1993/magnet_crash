@@ -55,6 +55,7 @@ class SoundService {
   Future<void> playInvalidTap() => _play('sounds/invalid_tap.wav');
   Future<void> playNoMove() => _play('sounds/no_move.wav');
   Future<void> playGameStart() => _play('sounds/game_start.wav');
+  Future<void> playMagneticStorm() => _play('sounds/magnetic_storm.wav');
 
   void dispose() {
     final pool = _pool;
